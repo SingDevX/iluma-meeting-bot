@@ -22,7 +22,7 @@ async def on_ready():
 
 # Function to send meeting announcement with MT times
 async def send_meeting_announcement(day):
-    channel = discord.utils.get(bot.get_all_channels(), name="general")  # Replace with your channel name
+    channel = discord.utils.get(bot.get_all_channels(), name="general")
     if channel:
         if day == 0:  # For Monday MT (triggered on Tuesday PHT)
             await channel.send("🚨 **Meeting Reminder**: Google Meet yesterday at 1:30 PM MT! Join here: https://meet.google.com/ide-jofk-rjj")
@@ -41,10 +41,18 @@ async def webhook(ctx, day: str):
         await send_meeting_announcement(3)
         await ctx.send("Announcement sent for Thursday MT!")
 
-# Dummy port for Render Web Service
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.bind(('0.0.0.0', 10000))  # Render default port
-sock.listen(1)
+# Dummy port for Render Web Service (run in a separate thread)
+def run_dummy_server():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(('0.0.0.0', 10000))  # Render default port
+    sock.listen(1)
+    print("Dummy port 10000 bound for Render")
+    while True:
+        conn, addr = sock.accept()
+        conn.close()  # Accept and close to keep port open
+
+import threading
+threading.Thread(target=run_dummy_server, daemon=True).start()
 
 # Run the bot
 bot.run(os.getenv('BOT_TOKEN'))  # Use environment variable
