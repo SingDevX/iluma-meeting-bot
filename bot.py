@@ -97,70 +97,93 @@ async def on_ready():
         logger.info("Bot announced online in general channel")
     check_meetings.start()
 
-# Webhook command - FIXED SPLITTING LOGIC
+# BULLETPROOF Webhook command
 @bot.command()
 async def webhook(ctx, day: str):
     logger.info(f"Received webhook command for {day}")
     channel = discord.utils.get(bot.get_all_channels(), name="general")
-    if channel:
-        summary = get_latest_gemini_summary()
-        if not isinstance(summary, str):
-            await ctx.send("Error: Summary is not a valid string!")
-            logger.error("Summary is not a string")
-            return
-        
-        max_length = 3900  # Leave room for header/footer
-        header = f"🚨 **{day.capitalize()} Meeting Summary (Part {{part}}) **:\n"
-        footer_length = len(header) - 8  # Rough estimate for part numbering
-        
-        if len(summary) <= max_length:
-            try:
-                await channel.send(f"🚨 **{day.capitalize()} Meeting Summary**:\n{summary}")
-                logger.info(f"Sent single summary ({len(summary)} chars)")
-            except Exception as e:
-                logger.error(f"Error sending summary: {e}")
-                await ctx.send(f"Error sending summary: {e}")
-        else:
-            # Character-based splitting with word boundary trimming
-            part_number = 1
-            start = 0
-            
-            while start < len(summary):
-                end = start + max_length
-                # Find the last space before max_length to avoid cutting words
-                if end < len(summary):
-                    while end > start and summary[end] != ' ' and summary[end] != '\n':
-                        end -= 1
-                    if end == start:  # No space found, force cut
-                        end = start + max_length
-                else:
-                    end = len(summary)
-                
-                chunk = summary[start:end].strip()
-                if chunk:  # Only send non-empty chunks
-                    message_text = f"🚨 **{day.capitalize()} Meeting Summary (Part {part_number})**:\n{chunk}"
-                    try:
-                        if len(message_text) <= 4000:  # Double-check total length
-                            await channel.send(message_text)
-                            logger.info(f"Sent Part {part_number} ({len(chunk)} chars, total: {len(message_text)})")
-                            await asyncio.sleep(0.5)  # Rate limit protection
-                            part_number += 1
-                        else:
-                            logger.error(f"Part {part_number} too long: {len(message_text)} chars")
-                            await ctx.send(f"Error: Part {part_number} too long ({len(message_text)} chars)")
-                            break
-                    except Exception as e:
-                        logger.error(f"Error sending Part {part_number}: {e}")
-                        await ctx.send(f"Error sending Part {part_number}: {e}")
-                        break
-                
-                start = end + 1  # Skip the space/newline we cut at
-        
-        await ctx.send(f"✅ Summary posted for {day} MT! ({len(summary)} total chars, {part_number-1} parts)")
-        logger.info(f"Summary posting completed for {day} MT ({len(summary)} chars, {part_number-1} parts)")
-    else:
+    if not channel:
         logger.error("Channel not found")
         await ctx.send("❌ Error: General channel not found!")
+        return
+    
+    summary = get_latest_gemini_summary()
+    if not isinstance(summary, str):
+        await ctx.send("Error: Summary is not a valid string!")
+        logger.error("Summary is not a string")
+        return
+    
+    logger.info(f"Processing {len(summary)} character summary")
+    
+    # Single message case
+    if len(summary) <= 3800:  # Conservative limit
+        try:
+            message_text = f"🚨 **{day.capitalize()} Meeting Summary**:\n{summary}"
+            if len(message_text) <= 4000:
+                await channel.send(message_text)
+                logger.info(f"Sent single summary ({len(summary)} chars, total: {len(message_text)})")
+                await ctx.send(f"✅ Summary posted for {day} MT! ({len(summary)} chars)")
+            else:
+                logger.error(f"Single message too long: {len(message_text)} chars")
+                await ctx.send(f"❌ Error: Summary too long for single message ({len(message_text)} chars)")
+        except Exception as e:
+            logger.error(f"Error sending single summary: {e}")
+            await ctx.send(f"❌ Error sending summary: {e}")
+        return
+    
+    # Multi-part case - BULLETPROOF SPLITTING
+    max_content_length = 3800  # Guaranteed room for header
+    part_number = 1
+    start = 0
+    total_parts = 0
+    
+    while start < len(summary):
+        # Calculate end position
+        end = min(start + max_content_length, len(summary))
+        
+        # Find word boundary (last space before end)
+        if end < len(summary):
+            # Look backwards from end for space or newline
+            boundary = end
+            while boundary > start and summary[boundary-1] not in [' ', '\n', '\t']:
+                boundary -= 1
+            # If we backed up too much, use original end
+            if boundary < start + 100:  # Don't make tiny chunks
+                boundary = end
+        else:
+            boundary = end
+        
+        chunk = summary[start:boundary].strip()
+        
+        if len(chunk) > 0:
+            # Build complete message
+            header = f"🚨 **{day.capitalize()} Meeting Summary (Part {part_number})**:\n"
+            message_text = header + chunk
+            
+            # FINAL SAFETY CHECK - truncate if still too long
+            if len(message_text) > 4000:
+                # Remove characters from chunk until it fits
+                max_chunk_size = 4000 - len(header)
+                chunk = chunk[:max_chunk_size].rstrip(' .,!?-')  # Remove trailing punctuation
+                message_text = header + chunk
+                logger.warning(f"Truncated Part {part_number} to fit: {len(message_text)} chars")
+            
+            try:
+                await channel.send(message_text)
+                logger.info(f"✅ Sent Part {part_number}: {len(chunk)} content chars, {len(message_text)} total")
+                await asyncio.sleep(1.0)  # Longer delay to avoid rate limits
+                total_parts += 1
+                part_number += 1
+            except Exception as e:
+                logger.error(f"❌ Failed to send Part {part_number}: {e}")
+                await ctx.send(f"❌ Failed to send Part {part_number}: {str(e)}")
+                break
+        
+        start = boundary
+    
+    # Final success message
+    await ctx.send(f"✅ Summary posted for {day} MT! ({len(summary)} chars, {total_parts} parts)")
+    logger.info(f"🎉 Summary posting completed: {len(summary)} chars in {total_parts} parts")
 
 # Import asyncio for sleep
 import asyncio
