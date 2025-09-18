@@ -71,8 +71,5 @@ def run_dummy_http_server():
 # Start dummy server in a daemon thread
 threading.Thread(target=run_dummy_http_server, daemon=True).start()
 
-# Ensure the server starts before running the bot
-asyncio.run(asyncio.sleep(1))  # Give the thread a moment to start
-
 # Run the bot
 bot.run(os.getenv('BOT_TOKEN'))
