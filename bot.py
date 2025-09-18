@@ -3,7 +3,7 @@ import http.server
 import socketserver
 import threading
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import logging
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -27,6 +27,19 @@ creds = Credentials.from_service_account_info(
     json.loads(os.getenv('GOOGLE_APPLICATION_CREDENTIALS')), scopes=SCOPES)
 drive_service = build('drive', 'v3', credentials=creds)
 
+# Function to send meeting announcement
+async def send_meeting_announcement(day):
+    channel = discord.utils.get(bot.get_all_channels(), name="general")
+    if channel:
+        if day == 0:  # Monday MT
+            await channel.send("🚨 **Meeting Reminder**: Google Meet today from 1:30 PM to 2:30 PM MT! Join here: https://meet.google.com/ide-jofk-rjj")
+            logger.info("Sent Monday meeting reminder")
+        elif day == 3:  # Thursday MT
+            await channel.send("🚨 **Meeting Reminder**: Google Meet today from 12:00 PM to 1:00 PM MT! Join here: https://meet.google.com/ide-jofk-rjj")
+            logger.info("Sent Thursday meeting reminder")
+    else:
+        logger.error("Channel not found")
+
 # Function to fetch the latest Gemini summary (keyword-based, last hour, root Drive)
 def get_latest_gemini_summary():
     # Calculate time 1 hour ago
@@ -42,6 +55,20 @@ def get_latest_gemini_summary():
         return doc.decode('utf-8')
     return "No Gemini summary found in the last hour!"
 
+# Automated task to check and announce meetings
+@tasks.loop(hours=24)  # Runs every 24 hours
+async def check_meetings():
+    current_time = datetime.utcnow()
+    current_day = current_time.weekday()  # 0 = Monday, 3 = Thursday
+    mt_offset = -6  # MT is UTC-6 (MDT); use -7 for PDT if applicable
+    mt_time = current_time.hour + mt_offset
+    
+    # Announce 30 minutes before meeting
+    if current_day == 0 and 13 <= mt_time < 14:  # Monday, 1:00 PM MT
+        await send_meeting_announcement(0)
+    elif current_day == 3 and 11 <= mt_time < 12:  # Thursday, 11:30 AM MT
+        await send_meeting_announcement(3)
+
 # Event: Bot is ready
 @bot.event
 async def on_ready():
@@ -50,8 +77,9 @@ async def on_ready():
     if channel:
         await channel.send("Bot is online!")
         logger.info("Bot announced online in general channel")
+    check_meetings.start()  # Start the automated task
 
-# Webhook command with Gemini summary
+# Webhook command (for summaries only, manual or n8n-triggered)
 @bot.command()
 async def webhook(ctx, day: str):
     logger.info(f"Received webhook command for {day}")
