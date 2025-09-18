@@ -41,7 +41,7 @@ async def send_meeting_announcement(day):
     else:
         logger.error("Channel not found")
 
-# Function to fetch the latest Gemini summary
+# Function to fetch the latest Gemini summary (BOM STRIPPED)
 def get_latest_gemini_summary(hours_back=24):
     cutoff_time = datetime.now(UTC) - timedelta(hours=hours_back)
     one_hour_ago = cutoff_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
@@ -53,10 +53,6 @@ def get_latest_gemini_summary(hours_back=24):
         files = results.get('files', [])
         logger.info(f"Found {len(files)} matching files")
         
-        # Log all found files for debugging
-        for file in files:
-            logger.info(f"File: {file['name']}, ID: {file['id']}, Modified: {file['modifiedTime']}, Parents: {file.get('parents', [])}")
-        
         if files:
             latest_file = max(files, key=lambda x: x['modifiedTime'])
             doc_id = latest_file['id']
@@ -64,14 +60,18 @@ def get_latest_gemini_summary(hours_back=24):
             logger.info(f"Exporting latest file: {doc_name} (ID: {doc_id})")
             
             doc = drive_service.files().export(fileId=doc_id, mimeType='text/plain').execute()
-            logger.info(f"Successfully exported {len(doc)} bytes")
             content = doc.decode('utf-8')
-            logger.info(f"Decoded content length: {len(content)} chars")
-            logger.info(f"First 100 chars: {repr(content[:100])}")  # Debug first 100 chars
+            
+            # STRIP BOM (Byte Order Mark)
+            if content.startswith('\ufeff'):
+                content = content[1:]
+                logger.info("✅ REMOVED BOM: Content started with U+FEFF")
+            
+            logger.info(f"Successfully exported {len(content)} clean chars")
             return content
         else:
             logger.warning(f"No 'Notes by Gemini' docs found in last {hours_back} hours")
-            return f"No Gemini summary found in the last {hours_back} hour(s)! Try checking file name or permissions."
+            return f"No Gemini summary found in the last {hours_back} hour(s)!"
             
     except Exception as e:
         logger.error(f"Error fetching Gemini summary: {e}")
@@ -100,7 +100,7 @@ async def on_ready():
         logger.info("Bot announced online in general channel")
     check_meetings.start()
 
-# DEBUG Webhook command - SIMPLE PLAIN TEXT FIRST
+# CLEAN PRODUCTION Webhook command
 @bot.command()
 async def webhook(ctx, day: str):
     logger.info(f"Received webhook command for {day}")
@@ -118,65 +118,46 @@ async def webhook(ctx, day: str):
     
     logger.info(f"Processing {len(summary)} character summary")
     
-    # STEP 1: Test with PLAIN TEXT first (no formatting)
-    test_message = f"TEST: {day} summary ({len(summary)} chars): {summary[:1900]}..."  # First 1900 chars
-    logger.info(f"TEST MESSAGE LENGTH: {len(test_message)} chars")
-    logger.info(f"TEST MESSAGE PREVIEW: {repr(test_message[:100])}")
-    
-    try:
-        await channel.send(test_message)
-        logger.info("✅ PLAIN TEXT TEST PASSED!")
-        await asyncio.sleep(2.0)  # Wait before next test
-    except Exception as e:
-        logger.error(f"❌ PLAIN TEXT TEST FAILED: {e}")
-        await ctx.send(f"❌ Plain text test failed: {str(e)}")
-        return
-    
-    # STEP 2: Test with FORMATTING (short version)
-    short_header = f"🚨 **{day.capitalize()} Meeting Summary (TEST)**:\n"
-    short_content = summary[:1800]  # Even shorter
-    formatted_message = short_header + short_content
-    logger.info(f"FORMATTED TEST LENGTH: {len(formatted_message)} chars")
-    logger.info(f"FORMATTED HEADER LENGTH: {len(short_header)} chars")
-    
-    try:
-        await channel.send(formatted_message)
-        logger.info("✅ FORMATTED TEST PASSED!")
-        await ctx.send(f"✅ Tests passed! Total summary: {len(summary)} chars")
-    except Exception as e:
-        logger.error(f"❌ FORMATTED TEST FAILED: {e}")
-        await ctx.send(f"❌ Formatted test failed: {str(e)} (length: {len(formatted_message)})")
-        return
-    
-    # STEP 3: If tests pass, do full split (simplified)
-    if len(summary) <= 1900:  # Super conservative
-        full_message = f"🚨 **{day.capitalize()} Meeting Summary**:\n{summary}"
+    # Single message case (under 1900 chars)
+    if len(summary) <= 1900:
         try:
-            await channel.send(full_message)
-            logger.info(f"✅ Sent full summary ({len(summary)} chars)")
-            await ctx.send(f"✅ Full summary posted for {day} MT!")
+            message_text = f"🚨 **{day.capitalize()} Meeting Summary**:\n{summary}"
+            await channel.send(message_text)
+            logger.info(f"✅ Sent single summary ({len(summary)} chars)")
+            await ctx.send(f"✅ Summary posted for {day} MT! ({len(summary)} chars)")
         except Exception as e:
-            logger.error(f"❌ Full summary failed: {e}")
-            await ctx.send(f"❌ Full summary failed: {str(e)}")
-    else:
-        # Simple character split without word boundaries (for debug)
-        max_chunk = 1800  # Ultra conservative
-        for i in range(0, len(summary), max_chunk):
-            chunk = summary[i:i + max_chunk]
-            message = f"🚨 **{day.capitalize()} Summary Part {i//max_chunk + 1}**:\n{chunk}"
-            logger.info(f"Sending chunk {i//max_chunk + 1}: {len(chunk)} chars, total: {len(message)} chars")
+            logger.error(f"❌ Error sending single summary: {e}")
+            await ctx.send(f"❌ Error sending summary: {e}")
+        return
+    
+    # Multi-part case - PROVEN 1800-CHAR SPLITTING (NO DUPLICATES)
+    max_chunk = 1800  # PROVEN WORKING SIZE
+    part_number = 1
+    start = 0
+    total_parts = 0
+    
+    while start < len(summary):
+        end = start + max_chunk
+        chunk = summary[start:end].strip()
+        
+        if len(chunk) > 0:
+            message_text = f"🚨 **{day.capitalize()} Meeting Summary (Part {part_number})**:\n{chunk}"
             
             try:
-                await channel.send(message)
-                logger.info(f"✅ Chunk {i//max_chunk + 1} sent successfully")
-                await asyncio.sleep(2.0)
+                await channel.send(message_text)
+                logger.info(f"✅ Sent Part {part_number}: {len(chunk)} content chars")
+                await asyncio.sleep(2.0)  # Rate limit protection
+                total_parts += 1
+                part_number += 1
             except Exception as e:
-                logger.error(f"❌ Chunk {i//max_chunk + 1} failed: {e}")
-                await ctx.send(f"❌ Chunk {i//max_chunk + 1} failed: {str(e)}")
+                logger.error(f"❌ Failed to send Part {part_number}: {e}")
+                await ctx.send(f"❌ Failed to send Part {part_number}: {str(e)}")
                 break
         
-        await ctx.send(f"✅ Debug posting completed for {day} MT! ({len(summary)} chars)")
-        logger.info(f"🎉 Debug posting completed: {len(summary)} chars")
+        start = end
+    
+    await ctx.send(f"✅ Summary posted for {day} MT! ({len(summary)} chars, {total_parts} parts)")
+    logger.info(f"🎉 Summary posting completed: {len(summary)} chars in {total_parts} parts")
 
 # Import asyncio for sleep
 import asyncio
