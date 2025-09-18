@@ -8,7 +8,7 @@ from discord.ext import commands, tasks
 import logging
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from datetime import datetime, timedelta, UTC  # Updated for timezone-aware datetime
+from datetime import datetime, timedelta, UTC
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 # Set up intents
 intents = discord.Intents.default()
-intents.message_content = True  # Enable message content intent
-intents.guilds = True          # Enable guild-related events
+intents.message_content = True
+intents.guilds = True
 
 # Set up the bot with a command prefix and intents
 bot = commands.Bot(command_prefix='!', intents=intents)
@@ -41,36 +41,50 @@ async def send_meeting_announcement(day):
     else:
         logger.error("Channel not found")
 
-# Function to fetch the latest Gemini summary (keyword-based, configurable time window)
-def get_latest_gemini_summary(hours_back=24):  # CHANGED: 24 hours for testing
-    one_hour_ago = (datetime.now(UTC) - timedelta(hours=hours_back)).isoformat() + 'Z'
-    query = "mimeType='application/vnd.google-apps.document' and name contains 'Notes by Gemini' and modifiedTime > '{}' and trashed=false".format(one_hour_ago)
+# Function to fetch the latest Gemini summary
+def get_latest_gemini_summary(hours_back=24):
+    cutoff_time = datetime.now(UTC) - timedelta(hours=hours_back)
+    one_hour_ago = cutoff_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+    query = f"mimeType='application/vnd.google-apps.document' and name contains 'Notes by Gemini' and modifiedTime > '{one_hour_ago}' and trashed=false"
+    
+    logger.info(f"Querying Drive with: {query}")
     try:
-        results = drive_service.files().list(q=query, fields="files(id, name, modifiedTime)").execute()
+        results = drive_service.files().list(q=query, fields="files(id, name, modifiedTime, parents)").execute()
         files = results.get('files', [])
+        logger.info(f"Found {len(files)} matching files")
+        
+        # Log all found files for debugging
+        for file in files:
+            logger.info(f"File: {file['name']}, ID: {file['id']}, Modified: {file['modifiedTime']}, Parents: {file.get('parents', [])}")
+        
         if files:
             latest_file = max(files, key=lambda x: x['modifiedTime'])
             doc_id = latest_file['id']
+            doc_name = latest_file['name']
+            logger.info(f"Exporting latest file: {doc_name} (ID: {doc_id})")
+            
             doc = drive_service.files().export(fileId=doc_id, mimeType='text/plain').execute()
-            logger.info(f"Found and exported Gemini summary: {latest_file['name']} (ID: {doc_id})")
+            logger.info(f"Successfully exported {len(doc)} bytes")
             return doc.decode('utf-8')
-        return "No Gemini summary found in the last {} hour(s)!".format(hours_back)
+        else:
+            logger.warning(f"No 'Notes by Gemini' docs found in last {hours_back} hours")
+            return f"No Gemini summary found in the last {hours_back} hour(s)! Try checking file name or permissions."
+            
     except Exception as e:
         logger.error(f"Error fetching Gemini summary: {e}")
-        return f"Error fetching summary: {e}"
+        return f"Error fetching summary: {str(e)}"
 
 # Automated task to check and announce meetings
-@tasks.loop(hours=24)  # Runs every 24 hours
+@tasks.loop(hours=24)
 async def check_meetings():
     current_time = datetime.now(UTC)
-    current_day = current_time.weekday()  # 0 = Monday, 3 = Thursday
-    mt_offset = -6  # MT is UTC-6 (MDT); use -7 for PDT if applicable
+    current_day = current_time.weekday()
+    mt_offset = -6
     mt_time = current_time.hour + mt_offset
     
-    # Announce 30 minutes before meeting
-    if current_day == 0 and 13 <= mt_time < 14:  # Monday, 1:00 PM MT
+    if current_day == 0 and 13 <= mt_time < 14:
         await send_meeting_announcement(0)
-    elif current_day == 3 and 11 <= mt_time < 12:  # Thursday, 11:30 AM MT
+    elif current_day == 3 and 11 <= mt_time < 12:
         await send_meeting_announcement(3)
 
 # Event: Bot is ready
@@ -81,9 +95,9 @@ async def on_ready():
     if channel:
         await channel.send("Bot is online!")
         logger.info("Bot announced online in general channel")
-    check_meetings.start()  # Start the automated task
+    check_meetings.start()
 
-# Webhook command (for summaries only, manual or n8n-triggered)
+# Webhook command
 @bot.command()
 async def webhook(ctx, day: str):
     logger.info(f"Received webhook command for {day}")
@@ -97,16 +111,14 @@ async def webhook(ctx, day: str):
         
         max_length = 4000
         if len(summary) > max_length:
-            # Word-based splitting to avoid mid-word cuts
             words = summary.split()
             current_chunk = []
             current_length = 0
             part_number = 1
             
             for word in words:
-                word_length = len(word) + 1  # +1 for space
+                word_length = len(word) + 1
                 if current_length + word_length > max_length:
-                    # Send current chunk
                     chunk_text = ' '.join(current_chunk)
                     try:
                         await channel.send(f"🚨 **{day.capitalize()} Meeting Summary (Part {part_number})**:\n{chunk_text}")
@@ -114,7 +126,6 @@ async def webhook(ctx, day: str):
                         part_number += 1
                         current_chunk = [word]
                         current_length = word_length
-                        # Small delay to avoid rate limits
                         await asyncio.sleep(0.5)
                     except Exception as e:
                         logger.error(f"Error sending Part {part_number}: {e}")
@@ -123,7 +134,6 @@ async def webhook(ctx, day: str):
                     current_chunk.append(word)
                     current_length += word_length
             
-            # Send final chunk if any
             if current_chunk:
                 chunk_text = ' '.join(current_chunk)
                 try:
@@ -146,10 +156,10 @@ async def webhook(ctx, day: str):
         logger.error("Channel not found")
         await ctx.send("❌ Error: General channel not found!")
 
-# Import asyncio for sleep (needed for rate limiting)
+# Import asyncio for sleep
 import asyncio
 
-# Dummy HTTP server for Render Web Service
+# Dummy HTTP server for Render
 class DummyHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
