@@ -5,6 +5,9 @@ import threading
 import discord
 from discord.ext import commands
 import logging
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from datetime import datetime, timedelta
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -18,6 +21,27 @@ intents.guilds = True          # Enable guild-related events
 # Set up the bot with a command prefix and intents
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+# Google Drive setup
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+creds = Credentials.from_service_account_info(
+    json.loads(os.getenv('GOOGLE_APPLICATION_CREDENTIALS')), scopes=SCOPES)
+drive_service = build('drive', 'v3', credentials=creds)
+
+# Function to fetch the latest Gemini summary (keyword-based, last hour, root Drive)
+def get_latest_gemini_summary():
+    # Calculate time 1 hour ago
+    one_hour_ago = (datetime.utcnow() - timedelta(hours=1)).isoformat() + 'Z'
+    # Query for Google Docs with "Notes by Gemini" in the name, modified in the last hour, in root
+    query = "mimeType='application/vnd.google-apps.document' and name contains 'Notes by Gemini' and modifiedTime > '{}' and trashed=false".format(one_hour_ago)
+    results = drive_service.files().list(q=query, fields="files(id, name, modifiedTime)").execute()
+    files = results.get('files', [])
+    if files:
+        latest_file = max(files, key=lambda x: x['modifiedTime'])
+        doc_id = latest_file['id']
+        doc = drive_service.files().export(fileId=doc_id, mimeType='text/plain').execute()
+        return doc.decode('utf-8')
+    return "No Gemini summary found in the last hour!"
+
 # Event: Bot is ready
 @bot.event
 async def on_ready():
@@ -27,31 +51,18 @@ async def on_ready():
         await channel.send("Bot is online!")
         logger.info("Bot announced online in general channel")
 
-# Function to send meeting announcement
-async def send_meeting_announcement(day):
-    channel = discord.utils.get(bot.get_all_channels(), name="general")
-    if channel:
-        if day == 0:  # Monday MT
-            await channel.send("🚨 **Meeting Reminder**: Google Meet yesterday at 1:30 PM MT! Join here: https://meet.google.com/ide-jofk-rjj")
-            logger.info("Sent Monday meeting reminder")
-        elif day == 3:  # Thursday MT
-            await channel.send("🚨 **Meeting Reminder**: Google Meet yesterday at 12:00 PM MT! Join here: https://meet.google.com/ide-jofk-rjj")
-            logger.info("Sent Thursday meeting reminder")
-    else:
-        logger.error("Channel not found")
-
-# Webhook command
+# Webhook command with Gemini summary
 @bot.command()
 async def webhook(ctx, day: str):
     logger.info(f"Received webhook command for {day}")
-    if day == "monday":
-        await send_meeting_announcement(0)
-        await ctx.send("Announcement sent for Monday MT!")
-        logger.info("Announcement sent for Monday MT")
-    elif day == "thursday":
-        await send_meeting_announcement(3)
-        await ctx.send("Announcement sent for Thursday MT!")
-        logger.info("Announcement sent for Thursday MT")
+    channel = discord.utils.get(bot.get_all_channels(), name="general")
+    if channel:
+        summary = get_latest_gemini_summary()
+        await channel.send(f"🚨 **{day.capitalize()} Meeting Summary**:\n{summary}")
+        await ctx.send(f"Summary posted for {day} MT!")
+        logger.info(f"Summary posted for {day} MT")
+    else:
+        logger.error("Channel not found")
 
 # Dummy HTTP server for Render Web Service
 class DummyHandler(http.server.SimpleHTTPRequestHandler):
