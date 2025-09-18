@@ -41,23 +41,44 @@ async def send_meeting_announcement(day):
     else:
         logger.error("Channel not found")
 
-# Function to fetch the latest Gemini summary (BOM STRIPPED)
+# Function to fetch the latest Gemini summary (BOM STRIPPED) - DEBUG LOGS ADDED
 def get_latest_gemini_summary(hours_back=24):
     cutoff_time = datetime.now(UTC) - timedelta(hours=hours_back)
     one_hour_ago = cutoff_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-    query = f"mimeType='application/vnd.google-apps.document' and name contains 'Notes by Gemini' and modifiedTime > '{one_hour_ago}' and trashed=false"
     
-    logger.info(f"Querying Drive with: {query}")
+    # DEBUG: First, search ALL "Notes by Gemini" files (no time restriction)
+    debug_query = "mimeType='application/vnd.google-apps.document' and name contains 'Notes by Gemini' and trashed=false"
+    logger.info(f"DEBUG QUERY (all time): {debug_query}")
+    
     try:
-        results = drive_service.files().list(q=query, fields="files(id, name, modifiedTime, parents)").execute()
+        debug_results = drive_service.files().list(q=debug_query, fields="files(id, name, modifiedTime, parents, owners)").execute()
+        all_files = debug_results.get('files', [])
+        logger.info(f"DEBUG: Found {len(all_files)} 'Notes by Gemini' files total (no time limit)")
+        
+        # Log ALL files visible to service account
+        for i, file in enumerate(all_files, 1):
+            owners = [owner.get('emailAddress', 'Unknown') for owner in file.get('owners', [])]
+            logger.info(f"DEBUG ALL FILE {i}: '{file['name']}' | ID: {file['id']} | Modified: {file['modifiedTime']} | Owners: {owners} | Parents: {file.get('parents', [])}")
+        
+        # Now do the normal time-restricted query
+        query = f"mimeType='application/vnd.google-apps.document' and name contains 'Notes by Gemini' and modifiedTime > '{one_hour_ago}' and trashed=false"
+        logger.info(f"Querying Drive with time limit: {query}")
+        
+        results = drive_service.files().list(q=query, fields="files(id, name, modifiedTime, parents, owners)").execute()
         files = results.get('files', [])
-        logger.info(f"Found {len(files)} matching files")
+        logger.info(f"Found {len(files)} matching files within {hours_back} hours")
+        
+        # Log time-restricted files
+        for i, file in enumerate(files, 1):
+            owners = [owner.get('emailAddress', 'Unknown') for owner in file.get('owners', [])]
+            logger.info(f"TIME FILTERED FILE {i}: '{file['name']}' | ID: {file['id']} | Modified: {file['modifiedTime']} | Owners: {owners}")
         
         if files:
             latest_file = max(files, key=lambda x: x['modifiedTime'])
             doc_id = latest_file['id']
             doc_name = latest_file['name']
-            logger.info(f"Exporting latest file: {doc_name} (ID: {doc_id})")
+            logger.info(f"🚀 SELECTED LATEST: {doc_name} (ID: {doc_id})")
+            logger.info(f"🚀 LATEST MODIFIED TIME: {latest_file['modifiedTime']}")
             
             doc = drive_service.files().export(fileId=doc_id, mimeType='text/plain').execute()
             content = doc.decode('utf-8')
