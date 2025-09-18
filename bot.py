@@ -1,4 +1,5 @@
 import os
+import json  # Add this line
 import http.server
 import socketserver
 import threading
