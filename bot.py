@@ -1,6 +1,7 @@
+import os
+import socket
 import discord
 from discord.ext import commands
-import os
 import asyncio
 
 # Set up intents
@@ -15,6 +16,9 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}')
+    channel = discord.utils.get(bot.get_all_channels(), name="general")
+    if channel:
+        await channel.send("Bot is online!")
 
 # Function to send meeting announcement with MT times
 async def send_meeting_announcement(day):
@@ -36,6 +40,11 @@ async def webhook(ctx, day: str):
     elif day == "thursday":
         await send_meeting_announcement(3)
         await ctx.send("Announcement sent for Thursday MT!")
+
+# Dummy port for Render Web Service
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.bind(('0.0.0.0', 10000))  # Render default port
+sock.listen(1)
 
 # Run the bot
 bot.run(os.getenv('BOT_TOKEN'))  # Use environment variable
