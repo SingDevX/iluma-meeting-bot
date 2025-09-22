@@ -32,25 +32,25 @@ drive_service = build('drive', 'v3', credentials=creds)
 async def send_meeting_announcement(day, meeting_date=None, announcement_type="reminder"):
     channel = discord.utils.get(bot.get_all_channels(), name="meeting-announcements")
     if channel:
-        if day == 1:  # Tuesday PHT (3:30 AM - 4:30 AM)
+        if day == 1:  # Tuesday PHT (3:30 AM - 4:30 AM) = Monday 1:30 PM - 2:30 PM MT
             if announcement_type == "preview":
-                await channel.send(f"📅 **Upcoming Meeting**: Tuesday {meeting_date.strftime('%B %d')} at 3:30 AM PHT\nJoin here: https://meet.google.com/ide-jofk-rjj")
+                await channel.send(f"📅 **Upcoming Meeting**: Monday {meeting_date.strftime('%B %d')} at 1:30 PM MT\nJoin here: https://meet.google.com/wsh-ukvd-fqq")
             elif announcement_type == "day_before":
-                await channel.send(f"⏰ **Tomorrow's Meeting**: {meeting_date.strftime('%A, %B %d')} at 3:30 AM PHT\nJoin here: https://meet.google.com/ide-jofk-rjj")
+                await channel.send(f"⏰ **Tomorrow's Meeting**: {meeting_date.strftime('%A, %B %d')} at 1:30 PM MT\nJoin here: https://meet.google.com/wsh-ukvd-fqq")
             elif announcement_type == "morning_of":
-                await channel.send(f"🚨 **Today's Meeting**: {meeting_date.strftime('%A, %B %d')} at 3:30 AM PHT (30 min reminder)\nJoin here: https://meet.google.com/ide-jofk-rjj")
+                await channel.send(f"🚨 **Today's Meeting**: {meeting_date.strftime('%A, %B %d')} at 1:30 PM MT (30 min reminder)\nJoin here: https://meet.google.com/wsh-ukvd-fqq")
             else:  # during meeting
-                await channel.send(f"🚨 **Meeting Now**: Tuesday {meeting_date.strftime('%B %d')} from 3:30 AM to 4:30 AM PHT!\nJoin here: https://meet.google.com/ide-jofk-rjj")
+                await channel.send(f"🚨 **Meeting Now**: Monday {meeting_date.strftime('%B %d')} from 1:30 PM to 2:30 PM MT!\nJoin here: https://meet.google.com/wsh-ukvd-fqq")
             logger.info(f"Sent {announcement_type} for Tuesday {meeting_date} (PHT) to meeting-announcements")
-        elif day == 4:  # Friday PHT (2:00 AM - 3:00 AM)
+        elif day == 4:  # Friday PHT (2:00 AM - 3:00 AM) = Thursday 12:00 PM - 1:00 PM MT
             if announcement_type == "preview":
-                await channel.send(f"📅 **Upcoming Meeting**: Friday {meeting_date.strftime('%B %d')} at 2:00 AM PHT\nJoin here: https://meet.google.com/ide-jofk-rjj")
+                await channel.send(f"📅 **Upcoming Meeting**: Thursday {meeting_date.strftime('%B %d')} at 12:00 PM MT\nJoin here: https://meet.google.com/ide-jofk-rjj")
             elif announcement_type == "day_before":
-                await channel.send(f"⏰ **Tomorrow's Meeting**: {meeting_date.strftime('%A, %B %d')} at 2:00 AM PHT\nJoin here: https://meet.google.com/ide-jofk-rjj")
+                await channel.send(f"⏰ **Tomorrow's Meeting**: {meeting_date.strftime('%A, %B %d')} at 12:00 PM MT\nJoin here: https://meet.google.com/ide-jofk-rjj")
             elif announcement_type == "morning_of":
-                await channel.send(f"🚨 **Today's Meeting**: {meeting_date.strftime('%A, %B %d')} at 2:00 AM PHT (30 min reminder)\nJoin here: https://meet.google.com/ide-jofk-rjj")
+                await channel.send(f"🚨 **Today's Meeting**: {meeting_date.strftime('%A, %B %d')} at 12:00 PM MT (30 min reminder)\nJoin here: https://meet.google.com/ide-jofk-rjj")
             else:  # during meeting
-                await channel.send(f"🚨 **Meeting Now**: Friday {meeting_date.strftime('%B %d')} from 2:00 AM to 3:00 AM PHT!\nJoin here: https://meet.google.com/ide-jofk-rjj")
+                await channel.send(f"🚨 **Meeting Now**: Thursday {meeting_date.strftime('%B %d')} from 12:00 PM to 1:00 PM MT!\nJoin here: https://meet.google.com/ide-jofk-rjj")
             logger.info(f"Sent {announcement_type} for Friday {meeting_date} (PHT) to meeting-announcements")
     else:
         logger.error("Channel meeting-announcements not found")
