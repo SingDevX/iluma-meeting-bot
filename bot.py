@@ -28,16 +28,30 @@ creds = Credentials.from_service_account_info(
     json.loads(os.getenv('GOOGLE_APPLICATION_CREDENTIALS')), scopes=SCOPES)
 drive_service = build('drive', 'v3', credentials=creds)
 
-# Function to send meeting announcement
-async def send_meeting_announcement(day):
+# Function to send meeting announcement (PH TIME)
+async def send_meeting_announcement(day, meeting_date=None, announcement_type="reminder"):
     channel = discord.utils.get(bot.get_all_channels(), name="general")
     if channel:
-        if day == 0:  # Monday MT
-            await channel.send("🚨 **Meeting Reminder**: Google Meet today from 1:30 PM to 2:30 PM MT! Join here: https://meet.google.com/ide-jofk-rjj")
-            logger.info("Sent Monday meeting reminder")
-        elif day == 3:  # Thursday MT
-            await channel.send("🚨 **Meeting Reminder**: Google Meet today from 12:00 PM to 1:00 PM MT! Join here: https://meet.google.com/ide-jofk-rjj")
-            logger.info("Sent Thursday meeting reminder")
+        if day == 1:  # Tuesday PHT (3:30 AM - 4:30 AM)
+            if announcement_type == "preview":
+                await channel.send(f"📅 **Upcoming Meeting**: Tuesday {meeting_date.strftime('%B %d')} at 3:30 AM PHT\nJoin here: https://meet.google.com/ide-jofk-rjj")
+            elif announcement_type == "day_before":
+                await channel.send(f"⏰ **Tomorrow's Meeting**: {meeting_date.strftime('%A, %B %d')} at 3:30 AM PHT\nJoin here: https://meet.google.com/ide-jofk-rjj")
+            elif announcement_type == "morning_of":
+                await channel.send(f"🚨 **Today's Meeting**: {meeting_date.strftime('%A, %B %d')} at 3:30 AM PHT (30 min reminder)\nJoin here: https://meet.google.com/ide-jofk-rjj")
+            else:  # during meeting
+                await channel.send(f"🚨 **Meeting Now**: Tuesday {meeting_date.strftime('%B %d')} from 3:30 AM to 4:30 AM PHT!\nJoin here: https://meet.google.com/ide-jofk-rjj")
+            logger.info(f"Sent {announcement_type} for Tuesday {meeting_date} (PHT)")
+        elif day == 3:  # Thursday PHT (2:00 AM - 3:00 AM)
+            if announcement_type == "preview":
+                await channel.send(f"📅 **Upcoming Meeting**: Thursday {meeting_date.strftime('%B %d')} at 2:00 AM PHT\nJoin here: https://meet.google.com/ide-jofk-rjj")
+            elif announcement_type == "day_before":
+                await channel.send(f"⏰ **Tomorrow's Meeting**: {meeting_date.strftime('%A, %B %d')} at 2:00 AM PHT\nJoin here: https://meet.google.com/ide-jofk-rjj")
+            elif announcement_type == "morning_of":
+                await channel.send(f"🚨 **Today's Meeting**: {meeting_date.strftime('%A, %B %d')} at 2:00 AM PHT (30 min reminder)\nJoin here: https://meet.google.com/ide-jofk-rjj")
+            else:  # during meeting
+                await channel.send(f"🚨 **Meeting Now**: Thursday {meeting_date.strftime('%B %d')} from 2:00 AM to 3:00 AM PHT!\nJoin here: https://meet.google.com/ide-jofk-rjj")
+            logger.info(f"Sent {announcement_type} for Thursday {meeting_date} (PHT)")
     else:
         logger.error("Channel not found")
 
@@ -98,18 +112,76 @@ def get_latest_gemini_summary(hours_back=24):
         logger.error(f"Error fetching Gemini summary: {e}")
         return f"Error fetching summary: {str(e)}"
 
-# Automated task to check and announce meetings
-@tasks.loop(hours=24)
-async def check_meetings():
+# ENHANCED: Automatic meeting schedule announcements (PH TIME)
+@tasks.loop(hours=1)  # Check every hour for upcoming meetings
+async def check_and_announce_meetings():
     current_time = datetime.now(UTC)
-    current_day = current_time.weekday()
-    mt_offset = -6
-    mt_time = current_time.hour + mt_offset
+    pht_offset = 8  # Philippine Time (UTC+8)
+    current_pht_time = current_time + timedelta(hours=pht_offset)
     
-    if current_day == 0 and 13 <= mt_time < 14:
-        await send_meeting_announcement(0)
-    elif current_day == 3 and 11 <= mt_time < 12:
-        await send_meeting_announcement(3)
+    # Find next Tuesday and Thursday meetings
+    days_ahead = 0
+    while days_ahead < 7:  # Look ahead 1 week max
+        check_date = current_pht_time + timedelta(days=days_ahead)
+        check_day = check_date.weekday()
+        
+        # Tuesday meeting (3:30 AM PHT)
+        if check_day == 1:  # Tuesday
+            tuesday_time = check_date.replace(hour=3, minute=30, second=0, microsecond=0)
+            
+            # Preview (2+ days away)
+            if (tuesday_time - current_pht_time).days >= 2:
+                await send_meeting_announcement(1, tuesday_time, "preview")
+                logger.info(f"Preview sent for Tuesday {tuesday_time.strftime('%B %d')} PHT")
+                break
+                
+            # Day before (Monday, 9 PM PHT - 6.5 hours before)
+            elif (tuesday_time - current_pht_time).days == 1 and current_pht_time.hour >= 21:
+                await send_meeting_announcement(1, tuesday_time, "day_before")
+                logger.info(f"Day-before reminder sent for Tuesday {tuesday_time.strftime('%B %d')} PHT")
+                break
+                
+            # Morning of (Tuesday, 3:00 AM PHT - 30 min before)
+            elif check_day == 1 and current_pht_time.hour == 3 and current_pht_time.minute == 0:
+                await send_meeting_announcement(1, tuesday_time, "morning_of")
+                logger.info(f"Morning reminder sent for Tuesday {tuesday_time.strftime('%B %d')} PHT")
+                break
+                
+            # During meeting (3:30-4:30 AM PHT)
+            elif check_day == 1 and 3 <= current_pht_time.hour < 4:
+                await send_meeting_announcement(1, tuesday_time)
+                logger.info(f"During-meeting reminder sent for Tuesday {tuesday_time.strftime('%B %d')} PHT")
+                break
+        
+        # Thursday meeting (2:00 AM PHT)
+        elif check_day == 3:  # Thursday
+            thursday_time = check_date.replace(hour=2, minute=0, second=0, microsecond=0)
+            
+            # Preview (2+ days away)
+            if (thursday_time - current_pht_time).days >= 2:
+                await send_meeting_announcement(3, thursday_time, "preview")
+                logger.info(f"Preview sent for Thursday {thursday_time.strftime('%B %d')} PHT")
+                break
+                
+            # Day before (Wednesday, 8 PM PHT - 6 hours before)
+            elif (thursday_time - current_pht_time).days == 1 and current_pht_time.hour >= 20:
+                await send_meeting_announcement(3, thursday_time, "day_before")
+                logger.info(f"Day-before reminder sent for Thursday {thursday_time.strftime('%B %d')} PHT")
+                break
+                
+            # Morning of (Thursday, 1:30 AM PHT - 30 min before)
+            elif check_day == 3 and current_pht_time.hour == 1 and current_pht_time.minute == 30:
+                await send_meeting_announcement(3, thursday_time, "morning_of")
+                logger.info(f"Morning reminder sent for Thursday {thursday_time.strftime('%B %d')} PHT")
+                break
+                
+            # During meeting (2:00-3:00 AM PHT)
+            elif check_day == 3 and 2 <= current_pht_time.hour < 3:
+                await send_meeting_announcement(3, thursday_time)
+                logger.info(f"During-meeting reminder sent for Thursday {thursday_time.strftime('%B %d')} PHT")
+                break
+        
+        days_ahead += 1
 
 # Event: Bot is ready
 @bot.event
@@ -119,7 +191,7 @@ async def on_ready():
     if channel:
         await channel.send("Bot is online!")
         logger.info("Bot announced online in general channel")
-    check_meetings.start()
+    check_and_announce_meetings.start()  # Start the enhanced announcement task
 
 # CLEAN PRODUCTION Webhook command
 @bot.command()
@@ -177,7 +249,7 @@ async def webhook(ctx, day: str):
         
         start = end
     
-    await ctx.send(f"✅ Summary posted for {day} MT! ({len(summary)} chars, {total_parts} parts)")
+    await ctx.send(f"✅ Summary posted for {day} PHT! ({len(summary)} chars, {total_parts} parts)")
     logger.info(f"🎉 Summary posting completed: {len(summary)} chars in {total_parts} parts")
 
 # Import asyncio for sleep
