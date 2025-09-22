@@ -84,7 +84,7 @@ def get_latest_gemini_summary(hours_back=24):
         
         # Log time-restricted files
         for i, file in enumerate(files, 1):
-            owners = [owner.get('emailAddress', 'Unknown') for owner in file.get('owners', [])]
+            owners = [owner.get('emailAddress', 'Unknown') for owner in file.get('owners', []}]
             logger.info(f"TIME FILTERED FILE {i}: '{file['name']}' | ID: {file['id']} | Modified: {file['modifiedTime']} | Owners: {owners}")
         
         if files:
