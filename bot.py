@@ -28,9 +28,9 @@ creds = Credentials.from_service_account_info(
     json.loads(os.getenv('GOOGLE_APPLICATION_CREDENTIALS')), scopes=SCOPES)
 drive_service = build('drive', 'v3', credentials=creds)
 
-# Function to send meeting announcement (PH TIME)
+# Function to send meeting announcement (PH TIME) with multiple stages
 async def send_meeting_announcement(day, meeting_date=None, announcement_type="reminder"):
-    channel = discord.utils.get(bot.get_all_channels(), name="general")
+    channel = discord.utils.get(bot.get_all_channels(), name="meeting-announcements")
     if channel:
         if day == 1:  # Tuesday PHT (3:30 AM - 4:30 AM)
             if announcement_type == "preview":
@@ -41,19 +41,19 @@ async def send_meeting_announcement(day, meeting_date=None, announcement_type="r
                 await channel.send(f"🚨 **Today's Meeting**: {meeting_date.strftime('%A, %B %d')} at 3:30 AM PHT (30 min reminder)\nJoin here: https://meet.google.com/ide-jofk-rjj")
             else:  # during meeting
                 await channel.send(f"🚨 **Meeting Now**: Tuesday {meeting_date.strftime('%B %d')} from 3:30 AM to 4:30 AM PHT!\nJoin here: https://meet.google.com/ide-jofk-rjj")
-            logger.info(f"Sent {announcement_type} for Tuesday {meeting_date} (PHT)")
-        elif day == 3:  # Thursday PHT (2:00 AM - 3:00 AM)
+            logger.info(f"Sent {announcement_type} for Tuesday {meeting_date} (PHT) to meeting-announcements")
+        elif day == 4:  # Friday PHT (2:00 AM - 3:00 AM)
             if announcement_type == "preview":
-                await channel.send(f"📅 **Upcoming Meeting**: Thursday {meeting_date.strftime('%B %d')} at 2:00 AM PHT\nJoin here: https://meet.google.com/ide-jofk-rjj")
+                await channel.send(f"📅 **Upcoming Meeting**: Friday {meeting_date.strftime('%B %d')} at 2:00 AM PHT\nJoin here: https://meet.google.com/ide-jofk-rjj")
             elif announcement_type == "day_before":
                 await channel.send(f"⏰ **Tomorrow's Meeting**: {meeting_date.strftime('%A, %B %d')} at 2:00 AM PHT\nJoin here: https://meet.google.com/ide-jofk-rjj")
             elif announcement_type == "morning_of":
                 await channel.send(f"🚨 **Today's Meeting**: {meeting_date.strftime('%A, %B %d')} at 2:00 AM PHT (30 min reminder)\nJoin here: https://meet.google.com/ide-jofk-rjj")
             else:  # during meeting
-                await channel.send(f"🚨 **Meeting Now**: Thursday {meeting_date.strftime('%B %d')} from 2:00 AM to 3:00 AM PHT!\nJoin here: https://meet.google.com/ide-jofk-rjj")
-            logger.info(f"Sent {announcement_type} for Thursday {meeting_date} (PHT)")
+                await channel.send(f"🚨 **Meeting Now**: Friday {meeting_date.strftime('%B %d')} from 2:00 AM to 3:00 AM PHT!\nJoin here: https://meet.google.com/ide-jofk-rjj")
+            logger.info(f"Sent {announcement_type} for Friday {meeting_date} (PHT) to meeting-announcements")
     else:
-        logger.error("Channel not found")
+        logger.error("Channel meeting-announcements not found")
 
 # Function to fetch the latest Gemini summary (BOM STRIPPED) - DEBUG LOGS ADDED
 def get_latest_gemini_summary(hours_back=24):
@@ -84,7 +84,7 @@ def get_latest_gemini_summary(hours_back=24):
         
         # Log time-restricted files
         for i, file in enumerate(files, 1):
-            owners = [owner.get('emailAddress', 'Unknown') for owner in file.get('owners', []}]
+            owners = [owner.get('emailAddress', 'Unknown') for owner in file.get('owners', [])]
             logger.info(f"TIME FILTERED FILE {i}: '{file['name']}' | ID: {file['id']} | Modified: {file['modifiedTime']} | Owners: {owners}")
         
         if files:
@@ -119,7 +119,7 @@ async def check_and_announce_meetings():
     pht_offset = 8  # Philippine Time (UTC+8)
     current_pht_time = current_time + timedelta(hours=pht_offset)
     
-    # Find next Tuesday and Thursday meetings
+    # Find next Tuesday and Friday meetings
     days_ahead = 0
     while days_ahead < 7:  # Look ahead 1 week max
         check_date = current_pht_time + timedelta(days=days_ahead)
@@ -153,32 +153,32 @@ async def check_and_announce_meetings():
                 logger.info(f"During-meeting reminder sent for Tuesday {tuesday_time.strftime('%B %d')} PHT")
                 break
         
-        # Thursday meeting (2:00 AM PHT)
-        elif check_day == 3:  # Thursday
-            thursday_time = check_date.replace(hour=2, minute=0, second=0, microsecond=0)
+        # Friday meeting (2:00 AM PHT)
+        elif check_day == 4:  # Friday
+            friday_time = check_date.replace(hour=2, minute=0, second=0, microsecond=0)
             
             # Preview (2+ days away)
-            if (thursday_time - current_pht_time).days >= 2:
-                await send_meeting_announcement(3, thursday_time, "preview")
-                logger.info(f"Preview sent for Thursday {thursday_time.strftime('%B %d')} PHT")
+            if (friday_time - current_pht_time).days >= 2:
+                await send_meeting_announcement(4, friday_time, "preview")
+                logger.info(f"Preview sent for Friday {friday_time.strftime('%B %d')} PHT")
                 break
                 
-            # Day before (Wednesday, 8 PM PHT - 6 hours before)
-            elif (thursday_time - current_pht_time).days == 1 and current_pht_time.hour >= 20:
-                await send_meeting_announcement(3, thursday_time, "day_before")
-                logger.info(f"Day-before reminder sent for Thursday {thursday_time.strftime('%B %d')} PHT")
+            # Day before (Thursday, 8 PM PHT - 6 hours before)
+            elif (friday_time - current_pht_time).days == 1 and current_pht_time.hour >= 20:
+                await send_meeting_announcement(4, friday_time, "day_before")
+                logger.info(f"Day-before reminder sent for Friday {friday_time.strftime('%B %d')} PHT")
                 break
                 
-            # Morning of (Thursday, 1:30 AM PHT - 30 min before)
-            elif check_day == 3 and current_pht_time.hour == 1 and current_pht_time.minute == 30:
-                await send_meeting_announcement(3, thursday_time, "morning_of")
-                logger.info(f"Morning reminder sent for Thursday {thursday_time.strftime('%B %d')} PHT")
+            # Morning of (Friday, 1:30 AM PHT - 30 min before)
+            elif check_day == 4 and current_pht_time.hour == 1 and current_pht_time.minute == 30:
+                await send_meeting_announcement(4, friday_time, "morning_of")
+                logger.info(f"Morning reminder sent for Friday {friday_time.strftime('%B %d')} PHT")
                 break
                 
             # During meeting (2:00-3:00 AM PHT)
-            elif check_day == 3 and 2 <= current_pht_time.hour < 3:
-                await send_meeting_announcement(3, thursday_time)
-                logger.info(f"During-meeting reminder sent for Thursday {thursday_time.strftime('%B %d')} PHT")
+            elif check_day == 4 and 2 <= current_pht_time.hour < 3:
+                await send_meeting_announcement(4, friday_time)
+                logger.info(f"During-meeting reminder sent for Friday {friday_time.strftime('%B %d')} PHT")
                 break
         
         days_ahead += 1
@@ -187,20 +187,20 @@ async def check_and_announce_meetings():
 @bot.event
 async def on_ready():
     logger.info(f'Logged in as {bot.user}')
-    channel = discord.utils.get(bot.get_all_channels(), name="general")
+    channel = discord.utils.get(bot.get_all_channels(), name="meeting-announcements")
     if channel:
         await channel.send("Bot is online!")
-        logger.info("Bot announced online in general channel")
+        logger.info("Bot announced online in meeting-announcements channel")
     check_and_announce_meetings.start()  # Start the enhanced announcement task
 
-# CLEAN PRODUCTION Webhook command
+# Meeting command
 @bot.command()
-async def webhook(ctx, day: str):
-    logger.info(f"Received webhook command for {day}")
-    channel = discord.utils.get(bot.get_all_channels(), name="general")
+async def meeting(ctx, day: str):
+    logger.info(f"Received meeting command for {day}")
+    channel = discord.utils.get(bot.get_all_channels(), name="meeting-summary")
     if not channel:
-        logger.error("Channel not found")
-        await ctx.send("❌ Error: General channel not found!")
+        logger.error("Channel meeting-summary not found")
+        await ctx.send("❌ Error: meeting-summary channel not found!")
         return
     
     summary = get_latest_gemini_summary()
@@ -216,8 +216,8 @@ async def webhook(ctx, day: str):
         try:
             message_text = f"🚨 **{day.capitalize()} Meeting Summary**:\n{summary}"
             await channel.send(message_text)
-            logger.info(f"✅ Sent single summary ({len(summary)} chars)")
-            await ctx.send(f"✅ Summary posted for {day} MT! ({len(summary)} chars)")
+            logger.info(f"✅ Sent single summary ({len(summary)} chars) to meeting-summary")
+            await ctx.send(f"✅ Summary posted for {day} PHT! ({len(summary)} chars)")
         except Exception as e:
             logger.error(f"❌ Error sending single summary: {e}")
             await ctx.send(f"❌ Error sending summary: {e}")
@@ -238,7 +238,7 @@ async def webhook(ctx, day: str):
             
             try:
                 await channel.send(message_text)
-                logger.info(f"✅ Sent Part {part_number}: {len(chunk)} content chars")
+                logger.info(f"✅ Sent Part {part_number}: {len(chunk)} content chars to meeting-summary")
                 await asyncio.sleep(2.0)  # Rate limit protection
                 total_parts += 1
                 part_number += 1
