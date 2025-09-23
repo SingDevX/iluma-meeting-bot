@@ -9,6 +9,7 @@ import logging
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta, UTC
+import asyncio
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +28,20 @@ SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 creds = Credentials.from_service_account_info(
     json.loads(os.getenv('GOOGLE_APPLICATION_CREDENTIALS')), scopes=SCOPES)
 drive_service = build('drive', 'v3', credentials=creds)
+
+# Load/save announcement state
+def load_announcement_state():
+    try:
+        with open('announcement_state.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+def save_announcement_state(state):
+    with open('announcement_state.json', 'w') as f:
+        json.dump(state, f)
+
+last_announced = load_announcement_state()
 
 # Function to send meeting announcement (PH TIME) with multiple stages
 async def send_meeting_announcement(day, meeting_date=None, announcement_type="reminder"):
@@ -105,7 +120,7 @@ def get_latest_gemini_summary(hours_back=24):
             logger.info(f"Successfully exported {len(content)} clean chars")
             return content
         else:
-            logger.warning(f"No 'Notes by Gemini' docs found in last {hours_back} hours")
+            logger.info(f"No 'Notes by Gemini' docs found in last {hours_back} hours")
             return f"No Gemini summary found in the last {hours_back} hour(s)!"
             
     except Exception as e:
@@ -113,8 +128,9 @@ def get_latest_gemini_summary(hours_back=24):
         return f"Error fetching summary: {str(e)}"
 
 # ENHANCED: Automatic meeting schedule announcements (PH TIME)
-@tasks.loop(hours=1)  # Check every hour for upcoming meetings
+@tasks.loop(hours=1)  # Keep hourly to catch time-sensitive reminders
 async def check_and_announce_meetings():
+    global last_announced
     current_time = datetime.now(UTC)
     pht_offset = 8  # Philippine Time (UTC+8)
     current_pht_time = current_time + timedelta(hours=pht_offset)
@@ -125,19 +141,33 @@ async def check_and_announce_meetings():
         check_date = current_pht_time + timedelta(days=days_ahead)
         check_day = check_date.weekday()
         
-        # Tuesday meeting (3:30 AM PHT)
         if check_day == 1:  # Tuesday
             tuesday_time = check_date.replace(hour=3, minute=30, second=0, microsecond=0)
-            
             # Preview (2+ days away)
+            preview_key = f"Tuesday_{tuesday_time.strftime('%Y-%m-%d')}_preview"
             if (tuesday_time - current_pht_time).days >= 2:
+                if preview_key in last_announced:
+                    last_time = datetime.fromisoformat(last_announced[preview_key])
+                    if (current_pht_time - last_time).total_seconds() < 24 * 3600:
+                        logger.info(f"Skipping preview for {preview_key}, already sent recently")
+                        break
                 await send_meeting_announcement(1, tuesday_time, "preview")
+                last_announced[preview_key] = current_pht_time.isoformat()
+                save_announcement_state(last_announced)
                 logger.info(f"Preview sent for Tuesday {tuesday_time.strftime('%B %d')} PHT")
                 break
                 
             # Day before (Monday, 9 PM PHT - 6.5 hours before)
-            elif (tuesday_time - current_pht_time).days == 1 and current_pht_time.hour >= 21:
+            day_before_key = f"Tuesday_{tuesday_time.strftime('%Y-%m-%d')}_day_before"
+            if (tuesday_time - current_pht_time).days == 1 and current_pht_time.hour >= 21:
+                if day_before_key in last_announced:
+                    last_time = datetime.fromisoformat(last_announced[day_before_key])
+                    if (current_pht_time - last_time).total_seconds() < 24 * 3600:
+                        logger.info(f"Skipping day_before for {day_before_key}, already sent recently")
+                        break
                 await send_meeting_announcement(1, tuesday_time, "day_before")
+                last_announced[day_before_key] = current_pht_time.isoformat()
+                save_announcement_state(last_announced)
                 logger.info(f"Day-before reminder sent for Tuesday {tuesday_time.strftime('%B %d')} PHT")
                 break
                 
@@ -148,24 +178,46 @@ async def check_and_announce_meetings():
                 break
                 
             # During meeting (3:30-4:30 AM PHT)
-            elif check_day == 1 and 3 <= current_pht_time.hour < 4:
+            during_key = f"Tuesday_{tuesday_time.strftime('%Y-%m-%d')}_during"
+            if check_day == 1 and 3 <= current_pht_time.hour < 4:
+                if during_key in last_announced:
+                    last_time = datetime.fromisoformat(last_announced[during_key])
+                    if (current_pht_time - last_time).total_seconds() < 24 * 3600:
+                        logger.info(f"Skipping during for {during_key}, already sent recently")
+                        break
                 await send_meeting_announcement(1, tuesday_time)
+                last_announced[during_key] = current_pht_time.isoformat()
+                save_announcement_state(last_announced)
                 logger.info(f"During-meeting reminder sent for Tuesday {tuesday_time.strftime('%B %d')} PHT")
                 break
         
-        # Friday meeting (2:00 AM PHT)
         elif check_day == 4:  # Friday
             friday_time = check_date.replace(hour=2, minute=0, second=0, microsecond=0)
-            
             # Preview (2+ days away)
+            preview_key = f"Friday_{friday_time.strftime('%Y-%m-%d')}_preview"
             if (friday_time - current_pht_time).days >= 2:
+                if preview_key in last_announced:
+                    last_time = datetime.fromisoformat(last_announced[preview_key])
+                    if (current_pht_time - last_time).total_seconds() < 24 * 3600:
+                        logger.info(f"Skipping preview for {preview_key}, already sent recently")
+                        break
                 await send_meeting_announcement(4, friday_time, "preview")
+                last_announced[preview_key] = current_pht_time.isoformat()
+                save_announcement_state(last_announced)
                 logger.info(f"Preview sent for Friday {friday_time.strftime('%B %d')} PHT")
                 break
                 
             # Day before (Thursday, 8 PM PHT - 6 hours before)
-            elif (friday_time - current_pht_time).days == 1 and current_pht_time.hour >= 20:
+            day_before_key = f"Friday_{friday_time.strftime('%Y-%m-%d')}_day_before"
+            if (friday_time - current_pht_time).days == 1 and current_pht_time.hour >= 20:
+                if day_before_key in last_announced:
+                    last_time = datetime.fromisoformat(last_announced[day_before_key])
+                    if (current_pht_time - last_time).total_seconds() < 24 * 3600:
+                        logger.info(f"Skipping day_before for {day_before_key}, already sent recently")
+                        break
                 await send_meeting_announcement(4, friday_time, "day_before")
+                last_announced[day_before_key] = current_pht_time.isoformat()
+                save_announcement_state(last_announced)
                 logger.info(f"Day-before reminder sent for Friday {friday_time.strftime('%B %d')} PHT")
                 break
                 
@@ -176,8 +228,16 @@ async def check_and_announce_meetings():
                 break
                 
             # During meeting (2:00-3:00 AM PHT)
-            elif check_day == 4 and 2 <= current_pht_time.hour < 3:
+            during_key = f"Friday_{friday_time.strftime('%Y-%m-%d')}_during"
+            if check_day == 4 and 2 <= current_pht_time.hour < 3:
+                if during_key in last_announced:
+                    last_time = datetime.fromisoformat(last_announced[during_key])
+                    if (current_pht_time - last_time).total_seconds() < 24 * 3600:
+                        logger.info(f"Skipping during for {during_key}, already sent recently")
+                        break
                 await send_meeting_announcement(4, friday_time)
+                last_announced[during_key] = current_pht_time.isoformat()
+                save_announcement_state(last_announced)
                 logger.info(f"During-meeting reminder sent for Friday {friday_time.strftime('%B %d')} PHT")
                 break
         
@@ -251,9 +311,6 @@ async def meeting(ctx, day: str):
     
     await ctx.send(f"✅ Summary posted for {day} PHT! ({len(summary)} chars, {total_parts} parts)")
     logger.info(f"🎉 Summary posting completed: {len(summary)} chars in {total_parts} parts")
-
-# Import asyncio for sleep
-import asyncio
 
 # Dummy HTTP server for Render
 class DummyHandler(http.server.SimpleHTTPRequestHandler):
