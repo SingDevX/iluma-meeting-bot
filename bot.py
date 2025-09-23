@@ -177,9 +177,9 @@ async def check_and_announce_meetings():
                 logger.info(f"Morning reminder sent for Tuesday {tuesday_time.strftime('%B %d')} PHT")
                 break
                 
-            # During meeting (3:30-4:30 AM PHT)
+            # During meeting (3:30-4:30 AM PHT) - Added proximity check
             during_key = f"Tuesday_{tuesday_time.strftime('%Y-%m-%d')}_during"
-            if check_day == 1 and 3 <= current_pht_time.hour < 4:
+            if check_day == 1 and 3 <= current_pht_time.hour < 4 and abs((tuesday_time - current_pht_time).total_seconds()) < 3600:
                 if during_key in last_announced:
                     last_time = datetime.fromisoformat(last_announced[during_key])
                     if (current_pht_time - last_time).total_seconds() < 24 * 3600:
@@ -227,9 +227,9 @@ async def check_and_announce_meetings():
                 logger.info(f"Morning reminder sent for Friday {friday_time.strftime('%B %d')} PHT")
                 break
                 
-            # During meeting (2:00-3:00 AM PHT)
+            # During meeting (2:00-3:00 AM PHT) - Added proximity check
             during_key = f"Friday_{friday_time.strftime('%Y-%m-%d')}_during"
-            if check_day == 4 and 2 <= current_pht_time.hour < 3:
+            if check_day == 4 and 2 <= current_pht_time.hour < 3 and abs((friday_time - current_pht_time).total_seconds()) < 3600:
                 if during_key in last_announced:
                     last_time = datetime.fromisoformat(last_announced[during_key])
                     if (current_pht_time - last_time).total_seconds() < 24 * 3600:
