@@ -10,6 +10,7 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta, UTC
 import asyncio
+import sys
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -330,5 +331,36 @@ def run_dummy_http_server():
 # Start dummy server in a daemon thread
 threading.Thread(target=run_dummy_http_server, daemon=True).start()
 
-# Run the bot
-bot.run(os.getenv('BOT_TOKEN'))
+# RATE LIMIT PROTECTION: Run bot with exponential backoff
+async def run_bot_with_retry():
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempting to start bot (attempt {attempt + 1}/{max_retries})...")
+            async with bot:
+                await bot.start(os.getenv('BOT_TOKEN'))
+            break  # If successful, exit the loop
+        except discord.errors.HTTPException as e:
+            if e.status == 429:  # Rate limited
+                wait_time = (2 ** attempt) * 60  # 60s, 120s, 240s, 480s, 960s
+                logger.warning(f"⚠️ Rate limited! Waiting {wait_time} seconds before retry... (Attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error("❌ Max retries reached. Bot cannot start due to rate limiting.")
+                    sys.exit(1)
+            else:
+                logger.error(f"❌ HTTP error {e.status}: {e}")
+                raise
+        except Exception as e:
+            logger.error(f"❌ Unexpected error: {e}")
+            raise
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(run_bot_with_retry())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+        sys.exit(1)
